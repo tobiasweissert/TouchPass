@@ -1,0 +1,5 @@
+{
+  "cpu": {
+    "fqbn": "esp32:esp32:XIAO_ESP32C6:PartitionScheme=huge_app"
+  }
+}
