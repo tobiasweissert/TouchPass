@@ -34,7 +34,7 @@ Connect the R502-A sensor to the ESP32-C6:
 1. Install Arduino IDE or arduino-cli
 2. Install ESP32 board support
 3. Install the BleKeyboard library
-4. Open `firmware/TouchPass.ino`
+4. Open `firmware/firmware.ino`
 5. Select board: **XIAO ESP32-C6**
 6. Select partition scheme: **Huge APP**
 7. Upload

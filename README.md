@@ -35,7 +35,7 @@ See [hardware/README.md](hardware/README.md) for wiring diagram and details.
 ```
 TouchPass/
 ├── firmware/          # ESP32 source code
-│   ├── TouchPass.ino  # Main firmware
+│   ├── firmware.ino   # Main firmware
 │   ├── webpage.h      # Embedded web UI
 │   └── sketch.json    # Arduino config
 ├── hardware/          # Wiring, schematics, PCB (future)
