@@ -8,10 +8,10 @@ A hardware password manager that types your passwords when you touch it with an 
 
 - **6-capture enrollment** - Touch ID style enrollment for better accuracy
 - **BLE Keyboard** - Types passwords automatically when finger is recognized
-- **Web UI** - Configure via WiFi with a mobile-friendly interface
+- **Web Serial Configuration** - Configure via USB using Chrome/Edge browser
 - **10 finger support** - Map passwords to specific fingers on left/right hands
 - **Re-enrollment protection** - Re-enrolling a finger overwrites the previous entry
-- **Long-press WiFi toggle** - Hold finger 5 seconds to enable/disable config mode
+- **Offline configurator** - Single HTML file, no internet required
 
 ## Hardware
 
@@ -26,8 +26,8 @@ See [hardware/README.md](hardware/README.md) for wiring diagram and details.
 
 1. **Build** - See [docs/assembly.md](docs/assembly.md)
 2. **Flash** - Upload firmware from `firmware/`
-3. **Pair** - Connect to `TouchPass` via Bluetooth
-4. **Configure** - Hold finger 5s → Join `TouchPass` WiFi → http://192.168.4.1
+3. **Configure** - Connect via USB → Open `firmware/config.html` in Chrome/Edge → Click "Connect Device"
+4. **Pair** - Connect to `TouchPass` via Bluetooth
 5. **Use** - Touch enrolled finger to type password
 
 ## Project Structure
@@ -36,7 +36,7 @@ See [hardware/README.md](hardware/README.md) for wiring diagram and details.
 TouchPass/
 ├── firmware/          # ESP32 source code
 │   ├── firmware.ino   # Main firmware
-│   ├── webpage.h      # Embedded web UI
+│   ├── config.html    # Web Serial configurator (open in Chrome/Edge)
 │   └── sketch.json    # Arduino config
 ├── hardware/          # Wiring, schematics, PCB (future)
 ├── enclosure/         # 3D printable case (coming soon)
@@ -55,6 +55,12 @@ TouchPass/
 - Arduino IDE or arduino-cli
 - ESP32 board support package
 - [BleKeyboard](https://github.com/T-vK/ESP32-BLE-Keyboard) library
+- [ArduinoJson](https://arduinojson.org/) library (v6+)
+
+### Configuration Requirements
+
+- Chrome 89+ or Edge 89+ (Web Serial API support)
+- USB cable for device connection
 
 ### Compile & Upload
 
@@ -75,19 +81,22 @@ arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:XIAO_ESP32C6:Partitio
 
 ### Configuration Mode
 
-1. Hold any finger for 5 seconds (LED turns blue)
-2. Connect to `TouchPass` WiFi (password: `touchpass`)
-3. Open http://192.168.4.1
+1. Connect TouchPass to your computer via USB
+2. Open `firmware/config.html` in Chrome or Edge browser
+3. Click "Connect Device" and select TouchPass from the list
 4. Enroll fingers and set passwords
+
+**Note**: Web Serial API only works in Chrome/Edge. Firefox and Safari are not supported.
 
 ### LED Indicators
 
 | Pattern | Color | Meaning |
 |---------|-------|---------|
-| Breathing | Blue | WiFi config mode |
+| Breathing | Blue | Enrolling finger |
 | Solid | Green | Finger recognized |
 | Solid | Red | Unknown finger |
 | Flash | Green | Capture success |
+| Flash | Cyan | Phase change (center → edges) |
 | Off | - | Standby |
 
 ## Contributing
@@ -101,10 +110,11 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Security Notes
 
-- Passwords stored in plain text in flash
-- WiFi AP uses simple password (local config only)
+- Passwords stored in plain text in flash memory
+- USB serial configuration requires physical access
 - Standard BLE HID (no encryption)
-- Physical access = password access
+- Physical device access = password access
+- Configuration only possible via USB connection
 
 ## License
 

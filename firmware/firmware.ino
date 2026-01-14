@@ -10,12 +10,13 @@
 //   R502-A Pin 5 (IRQ)  -> D2 (GPIO4)  - Optional finger detect
 //   R502-A Pin 6 (VT)   -> 3V3
 
-#include <WiFi.h>
-#include <WebServer.h>
 #include <HardwareSerial.h>
 #include <Preferences.h>
 #include <BleKeyboard.h>
-#include "webpage.h"
+#include <ArduinoJson.h>
+#include "SerialCommandHandler.h"
+#include "sdkconfig.h"
+#include "KeyboardInterface.h"
 
 // Pin definitions for XIAO ESP32-C6
 #define FP_TX_PIN 16  // D6 - ESP32 TX -> R502 RX
@@ -53,21 +54,32 @@
 #define LED_ON 0x03
 #define LED_OFF 0x04
 
-// WiFi AP settings
-const char* AP_SSID = "TouchPass";
-const char* AP_PASS = "touchpass";
-
 // Default Bluetooth device name
 #define DEFAULT_BT_NAME "TouchPass"
+
+// Chip detection and capabilities
+#if CONFIG_IDF_TARGET_ESP32C6
+  #define CHIP_TYPE "ESP32-C6"
+  #define HAS_NATIVE_USB false
+  #define DEFAULT_KB_MODE KB_MODE_BLE
+#elif CONFIG_IDF_TARGET_ESP32S3
+  #define CHIP_TYPE "ESP32-S3"
+  #define HAS_NATIVE_USB true
+  // Temporarily using BLE until USB keyboard implementation is fixed
+  #define DEFAULT_KB_MODE KB_MODE_BLE
+#else
+  #error "Unsupported chip type - only ESP32-C6 and ESP32-S3 are supported"
+#endif
 
 // Create hardware serial for fingerprint sensor
 HardwareSerial fpSerial(1);
 
-// BLE Keyboard
-BleKeyboard bleKeyboard(DEFAULT_BT_NAME, "Anthropic", 100);
+// Keyboard interface (BLE or USB depending on chip and configuration)
+KeyboardInterface* keyboard = nullptr;
+KeyboardMode currentKeyboardMode = KB_MODE_AUTO;
 
-// Web server
-WebServer server(80);
+// Serial command handler
+SerialCommandHandler serialHandler;
 
 // Preferences for storing finger names
 Preferences prefs;
@@ -122,10 +134,6 @@ int lastDetectedId = -1;
 int lastDetectedScore = 0;
 uint8_t lastDetectResult = 0xFF;
 bool newDetectionAvailable = false;
-
-// WiFi state (off by default, toggle with long touch)
-bool wifiEnabled = false;
-#define LONG_TOUCH_MS 5000  // 5 seconds for config mode toggle
 
 // Buffer for serial communication
 uint8_t rxBuffer[256];
@@ -441,77 +449,112 @@ bool getFingerPressEnter(uint16_t id) {
     return pe;
 }
 
-// Type password via BLE keyboard
+// ========================================
+// Keyboard Mode Configuration Functions
+// ========================================
+
+void saveKeyboardMode(KeyboardMode mode) {
+    prefs.begin("fingers", false);
+    prefs.putUChar("kbmode", (uint8_t)mode);
+    prefs.end();
+    Serial.printf("[CONFIG] Saved keyboard mode: %d\n", mode);
+}
+
+KeyboardMode loadKeyboardMode() {
+    prefs.begin("fingers", true);
+    uint8_t mode = prefs.getUChar("kbmode", KB_MODE_AUTO);
+    prefs.end();
+    return (KeyboardMode)mode;
+}
+
+String getKeyboardModeString(KeyboardMode mode) {
+    switch(mode) {
+        case KB_MODE_BLE: return "BLE";
+        case KB_MODE_USB: return "USB-HID";
+        case KB_MODE_AUTO: return "Auto";
+        default: return "Unknown";
+    }
+}
+
+bool initKeyboard() {
+    KeyboardMode requestedMode = loadKeyboardMode();
+
+    // Resolve AUTO mode to chip default
+    if (requestedMode == KB_MODE_AUTO) {
+        requestedMode = DEFAULT_KB_MODE;
+    }
+
+    // Validate mode for chip capabilities
+    if (requestedMode == KB_MODE_USB && !HAS_NATIVE_USB) {
+        Serial.println("[ERROR] USB mode not supported on ESP32-C6, falling back to BLE");
+        requestedMode = KB_MODE_BLE;
+    }
+
+    // Initialize appropriate keyboard
+    if (requestedMode == KB_MODE_BLE) {
+        keyboard = new BLEKeyboardWrapper(DEFAULT_BT_NAME, "Anthropic", 100);
+        Serial.println("[KEYBOARD] Initializing BLE keyboard");
+    }
+#if 0 && CONFIG_IDF_TARGET_ESP32S3
+    else if (requestedMode == KB_MODE_USB) {
+        keyboard = new USBKeyboardWrapper();
+        Serial.println("[KEYBOARD] Initializing USB-HID keyboard");
+    }
+#endif
+    else {
+        Serial.println("[ERROR] Invalid keyboard mode");
+        return false;
+    }
+
+    currentKeyboardMode = requestedMode;
+    bool success = keyboard->begin();
+
+    if (success) {
+        Serial.printf("[KEYBOARD] Started in %s mode\n", keyboard->getModeName().c_str());
+    } else {
+        Serial.println("[ERROR] Keyboard initialization failed");
+    }
+
+    return success;
+}
+
+// Type password via keyboard (BLE or USB)
 void typePassword(uint16_t fingerId) {
     String pwd = getFingerPassword(fingerId);
     if (pwd.length() == 0) {
-        Serial.printf("[BLE] No password stored for finger %d\n", fingerId);
+        Serial.printf("[KEYBOARD] No password stored for finger %d\n", fingerId);
         return;
     }
 
-    if (!bleKeyboard.isConnected()) {
-        Serial.println("[BLE] Not connected - cannot type password");
+    if (!keyboard || !keyboard->isConnected()) {
+        Serial.println("[KEYBOARD] Not connected - cannot type password");
         return;
     }
 
-    Serial.printf("[BLE] Typing password for finger %d (%d chars)\n", fingerId, pwd.length());
-    bleKeyboard.releaseAll();
+    Serial.printf("[KEYBOARD] Typing password for finger %d (%d chars) via %s\n",
+                  fingerId, pwd.length(), keyboard->getModeName().c_str());
+    keyboard->releaseAll();
     delay(50);
 
-    // Type each character with small delay
-    for (unsigned int i = 0; i < pwd.length(); i++) {
-        bleKeyboard.print(String(pwd[i]));
-        delay(30);
-    }
+    // Type password using keyboard interface
+    keyboard->print(pwd);
 
     // Press Enter if configured
     if (getFingerPressEnter(fingerId)) {
         delay(50);
-        bleKeyboard.write(KEY_RETURN);
-        Serial.println("[BLE] Pressed Enter");
+        keyboard->write(KEY_RETURN);
+        Serial.println("[KEYBOARD] Pressed Enter");
     }
 
-    bleKeyboard.releaseAll();
-    Serial.println("[BLE] Password typed");
+    keyboard->releaseAll();
+    Serial.println("[KEYBOARD] Password typed");
 }
 
 // Set LED off (idle state)
 void setIdleLED() {
-    if (wifiEnabled) {
-        setLED(LED_BREATHING, 100, LED_BLUE, 0);  // Keep blue breathing when WiFi on
-    } else {
-        setLED(LED_OFF, 0, LED_BLUE, 0);
-    }
-}
-
-// WiFi control functions
-void startWifi() {
-    Serial.println("[WIFI] Starting AP...");
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASS);
-    server.begin();
-    wifiEnabled = true;
-    setLED(LED_BREATHING, 100, LED_BLUE, 0);
-    Serial.printf("[WIFI] AP started: %s (IP: %s)\n", AP_SSID, WiFi.softAPIP().toString().c_str());
-}
-
-void stopWifi() {
-    Serial.println("[WIFI] Stopping AP...");
-    server.close();
-    WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
-    wifiEnabled = false;
     setLED(LED_OFF, 0, LED_BLUE, 0);
-    Serial.println("[WIFI] AP stopped");
 }
 
-void toggleWifi() {
-    if (wifiEnabled) {
-        stopWifi();
-    } else {
-        startWifi();
-    }
-}
 
 // Handle automatic finger detection (called from loop)
 void processFingerDetection() {
@@ -564,38 +607,16 @@ void processFingerDetection() {
         // Type password via BLE if connected
         typePassword(matchId);
 
-        // Now check if user keeps holding for settings mode
-        Serial.println("[DETECT] Password typed. Hold 5s more for settings...");
-        unsigned long holdStart = millis();
-        bool enteredSettings = false;
-
-        while (millis() - holdStart < LONG_TOUCH_MS) {
-            delay(200);
-            if (captureImage() != 0x00) {
-                // Finger removed
-                Serial.println("[DETECT] Finger removed");
-                break;
-            }
-            if (millis() - holdStart >= LONG_TOUCH_MS) {
-                // Still holding after 5 seconds - toggle WiFi
-                Serial.println("[DETECT] Long hold - toggling WiFi");
-                toggleWifi();
-                enteredSettings = true;
-                break;
-            }
-        }
-
-        if (!enteredSettings) {
-            delay(1000);  // Brief pause after password typed
-        }
+        // Brief pause after password typed
+        delay(1000);
         setIdleLED();
 
         // Wait for finger removal
         while (captureImage() == 0x00) delay(200);
 
     } else {
-        // No match - but still check for long hold to enter settings
-        Serial.printf("[DETECT] No match (code: 0x%02X) - hold 5s for settings\n", result);
+        // No match
+        Serial.printf("[DETECT] No match (code: 0x%02X)\n", result);
         lastDetectedFinger = "";
         lastDetectedId = -1;
         lastDetectedScore = 0;
@@ -603,22 +624,7 @@ void processFingerDetection() {
         newDetectionAvailable = true;
         lastStatus = "Unknown finger";
         setLED(LED_ON, 0, LED_RED, 0);
-
-        unsigned long holdStart = millis();
-        while (millis() - holdStart < LONG_TOUCH_MS) {
-            delay(200);
-            if (captureImage() != 0x00) {
-                // Finger removed
-                break;
-            }
-            if (millis() - holdStart >= LONG_TOUCH_MS) {
-                // Still holding after 5 seconds - toggle WiFi
-                Serial.println("[DETECT] Long hold - toggling WiFi");
-                toggleWifi();
-                break;
-            }
-        }
-
+        delay(2000);
         setIdleLED();
 
         // Wait for finger removal
@@ -626,12 +632,9 @@ void processFingerDetection() {
     }
 }
 
-// Web handlers
-void handleRoot() {
-    server.send(200, "text/html", INDEX_HTML);
-}
+// JSON handler functions (called by SerialCommandHandler)
 
-void handleStatus() {
+String getStatusJson() {
     getTemplateCount();
     String json = "{";
     json += "\"sensor\":" + String(sensorOk ? "true" : "false") + ",";
@@ -639,11 +642,10 @@ void handleStatus() {
     json += "\"capacity\":" + String(librarySize) + ",";
     json += "\"last\":\"" + lastStatus + "\"";
     json += "}";
-    server.send(200, "application/json", json);
+    return json;
 }
 
-// Poll for finger detection events
-void handleDetect() {
+String getDetectJson() {
     String json = "{";
     json += "\"detected\":" + String(newDetectionAvailable ? "true" : "false") + ",";
     json += "\"finger\":\"" + lastDetectedFinger + "\",";
@@ -658,7 +660,7 @@ void handleDetect() {
         newDetectionAvailable = false;
     }
 
-    server.send(200, "application/json", json);
+    return json;
 }
 
 // Get finger ID (0-9) for a slot
@@ -670,8 +672,7 @@ int getFingerIdForSlot(uint16_t slot) {
     return fingerId;
 }
 
-// Get list of enrolled fingers with names
-void handleFingers() {
+String getFingersJson() {
     String json = "{\"fingers\":[";
     bool first = true;
 
@@ -699,20 +700,19 @@ void handleFingers() {
     }
 
     json += "]}";
-    server.send(200, "application/json", json);
+    return json;
 }
 
-// Start enrollment process
-void handleEnrollStart() {
-    if (!server.hasArg("name")) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Missing name\"}");
-        return;
+String enrollStartJson(JsonObject params) {
+    const char* name = params["name"];
+    if (!name) {
+        return "{\"ok\":false,\"status\":\"Missing name\"}";
     }
 
-    pendingFingerName = server.arg("name");
-    pendingFingerPassword = server.hasArg("password") ? server.arg("password") : "";
-    pendingPressEnter = server.hasArg("pressEnter") && server.arg("pressEnter") == "true";
-    pendingFingerId = server.hasArg("finger") ? server.arg("finger").toInt() : -1;
+    pendingFingerName = String(name);
+    pendingFingerPassword = params.containsKey("password") ? String((const char*)params["password"]) : "";
+    pendingPressEnter = params["pressEnter"] | false;
+    pendingFingerId = params["finger"] | -1;
 
     // Check if this finger already has an enrollment - delete it first
     int16_t existingSlot = findSlotForFinger(pendingFingerId);
@@ -725,8 +725,7 @@ void handleEnrollStart() {
     pendingSlot = findEmptySlot();
 
     if (pendingSlot < 0 || pendingSlot >= librarySize) {
-        server.send(200, "application/json", "{\"ok\":false,\"status\":\"Library full\"}");
-        return;
+        return "{\"ok\":false,\"status\":\"Library full\"}";
     }
 
     enrollState = ENROLL_CAPTURE_1;
@@ -739,11 +738,10 @@ void handleEnrollStart() {
                   pendingFingerName.c_str(), pendingSlot,
                   pendingFingerPassword.length() > 0 ? "(set)" : "(none)");
 
-    server.send(200, "application/json", "{\"ok\":true,\"status\":\"Place finger on sensor\"}");
+    return "{\"ok\":true,\"status\":\"Place finger on sensor\"}";
 }
 
-// Poll enrollment status - returns detailed progress for 6-capture flow
-void handleEnrollStatus() {
+String getEnrollStatusJson() {
     String json = "{";
     json += "\"state\":" + String(enrollState) + ",";
     json += "\"totalSteps\":6,";
@@ -847,18 +845,17 @@ void handleEnrollStatus() {
     }
 
     json += "}";
-    server.send(200, "application/json", json);
+    return json;
 }
 
-// Cancel enrollment
-void handleEnrollCancel() {
+String enrollCancelJson() {
     enrollState = ENROLL_IDLE;
     pendingFingerName = "";
     pendingFingerPassword = "";
     pendingPressEnter = false;
     pendingSlot = -1;
     setIdleLED();
-    server.send(200, "application/json", "{\"ok\":true}");
+    return "{\"ok\":true}";
 }
 
 // Helper: Try to capture and generate feature into specified buffer
@@ -1040,16 +1037,14 @@ void processEnrollment() {
     }
 }
 
-void handleDelete() {
-    if (!server.hasArg("id")) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Missing ID\"}");
-        return;
+String deleteFingerJson(JsonObject params) {
+    int id = params["id"] | -1;
+    if (id < 0) {
+        return "{\"ok\":false,\"status\":\"Missing ID\"}";
     }
 
-    int id = server.arg("id").toInt();
-    if (id < 0 || id >= librarySize) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Invalid ID\"}");
-        return;
+    if (id >= librarySize) {
+        return "{\"ok\":false,\"status\":\"Invalid ID\"}";
     }
 
     String name = getFingerName(id);
@@ -1062,14 +1057,14 @@ void handleDelete() {
         delay(500);
         setIdleLED();
         lastStatus = "Deleted " + name;
-        server.send(200, "application/json", "{\"ok\":true,\"status\":\"Deleted " + name + "\",\"count\":" + String(templateCount) + "}");
+        return "{\"ok\":true,\"status\":\"Deleted " + name + "\",\"count\":" + String(templateCount) + "}";
     } else {
         lastStatus = "Delete failed";
-        server.send(200, "application/json", "{\"ok\":false,\"status\":\"Delete failed\",\"count\":" + String(templateCount) + "}");
+        return "{\"ok\":false,\"status\":\"Delete failed\",\"count\":" + String(templateCount) + "}";
     }
 }
 
-void handleEmpty() {
+String emptyLibraryJson() {
     uint8_t result = emptyLibrary();
     getTemplateCount();
 
@@ -1079,31 +1074,29 @@ void handleEmpty() {
         delay(500);
         setIdleLED();
         lastStatus = "Library cleared";
-        server.send(200, "application/json", "{\"ok\":true,\"status\":\"All fingerprints deleted\",\"count\":" + String(templateCount) + "}");
+        return "{\"ok\":true,\"status\":\"All fingerprints deleted\",\"count\":" + String(templateCount) + "}";
     } else {
         lastStatus = "Clear failed";
-        server.send(200, "application/json", "{\"ok\":false,\"status\":\"Failed to clear library\",\"count\":" + String(templateCount) + "}");
+        return "{\"ok\":false,\"status\":\"Failed to clear library\",\"count\":" + String(templateCount) + "}";
     }
 }
 
-// Get BLE connection status
-void handleBleStatus() {
-    bool connected = bleKeyboard.isConnected();
-    String json = "{\"connected\":" + String(connected ? "true" : "false") + "}";
-    server.send(200, "application/json", json);
+String getBLEStatusJson() {
+    bool connected = keyboard && keyboard->isConnected();
+    String json = "{\"connected\":" + String(connected ? "true" : "false");
+    json += ",\"mode\":\"" + (keyboard ? keyboard->getModeName() : "none") + "\"";
+    json += "}";
+    return json;
 }
 
-// Get finger details including password info
-void handleFingerGet() {
-    if (!server.hasArg("id")) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Missing ID\"}");
-        return;
+String getFingerJson(JsonObject params) {
+    int id = params["id"] | -1;
+    if (id < 0) {
+        return "{\"ok\":false,\"status\":\"Missing ID\"}";
     }
 
-    int id = server.arg("id").toInt();
-    if (id < 0 || id >= librarySize) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Invalid ID\"}");
-        return;
+    if (id >= librarySize) {
+        return "{\"ok\":false,\"status\":\"Invalid ID\"}";
     }
 
     String name = getFingerName(id);
@@ -1118,44 +1111,108 @@ void handleFingerGet() {
     json += "\"pressEnter\":" + String(pressEnter ? "true" : "false") + ",";
     json += "\"fingerId\":" + String(fingerId);
     json += "}";
-    server.send(200, "application/json", json);
+    return json;
 }
 
-// Update finger name/password/pressEnter
-void handleFingerUpdate() {
-    if (!server.hasArg("id")) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Missing ID\"}");
-        return;
+String updateFingerJson(JsonObject params) {
+    int id = params["id"] | -1;
+    if (id < 0) {
+        return "{\"ok\":false,\"status\":\"Missing ID\"}";
     }
 
-    int id = server.arg("id").toInt();
-    if (id < 0 || id >= librarySize) {
-        server.send(400, "application/json", "{\"ok\":false,\"status\":\"Invalid ID\"}");
-        return;
+    if (id >= librarySize) {
+        return "{\"ok\":false,\"status\":\"Invalid ID\"}";
     }
 
     // Update name if provided
-    if (server.hasArg("name")) {
-        saveFingerName(id, server.arg("name"));
+    if (params.containsKey("name")) {
+        saveFingerName(id, String((const char*)params["name"]));
     }
 
     // Update password if provided
-    if (server.hasArg("password")) {
-        saveFingerPassword(id, server.arg("password"));
+    if (params.containsKey("password")) {
+        saveFingerPassword(id, String((const char*)params["password"]));
     }
 
     // Update pressEnter if provided
-    if (server.hasArg("pressEnter")) {
-        saveFingerPressEnter(id, server.arg("pressEnter") == "true");
+    if (params.containsKey("pressEnter")) {
+        saveFingerPressEnter(id, params["pressEnter"] | false);
     }
 
     String name = getFingerName(id);
-    server.send(200, "application/json", "{\"ok\":true,\"status\":\"Updated " + name + "\"}");
+    return "{\"ok\":true,\"status\":\"Updated " + name + "\"}";
+}
+
+String getSystemInfoJson() {
+    String json = "{";
+    json += "\"chip\":\"" + String(CHIP_TYPE) + "\",";
+    json += "\"chipModel\":\"" + String(ESP.getChipModel()) + "\",";
+    json += "\"hasUSB\":" + String(HAS_NATIVE_USB ? "true" : "false") + ",";
+    json += "\"keyboardMode\":\"" + (keyboard ? keyboard->getModeName() : "none") + "\",";
+    json += "\"keyboardConnected\":" + String((keyboard && keyboard->isConnected()) ? "true" : "false");
+    json += "}";
+    return json;
+}
+
+String getKeyboardModeJson() {
+    KeyboardMode savedMode = loadKeyboardMode();
+    String json = "{";
+    json += "\"current\":\"" + getKeyboardModeString(currentKeyboardMode) + "\",";
+    json += "\"saved\":\"" + getKeyboardModeString(savedMode) + "\",";
+    json += "\"connected\":" + String((keyboard && keyboard->isConnected()) ? "true" : "false") + ",";
+    json += "\"chip\":\"" + String(CHIP_TYPE) + "\",";
+    json += "\"hasUSB\":" + String(HAS_NATIVE_USB ? "true" : "false") + ",";
+    json += "\"availableModes\":[\"BLE\"";
+#if CONFIG_IDF_TARGET_ESP32S3
+    json += ",\"USB-HID\"";
+#endif
+    json += "]";
+    json += "}";
+    return json;
+}
+
+String setKeyboardModeJson(JsonObject params) {
+    const char* modeStr = params["mode"];
+    if (!modeStr) {
+        return "{\"ok\":false,\"error\":\"Missing mode parameter\"}";
+    }
+
+    String modeStrLower = String(modeStr);
+    modeStrLower.toLowerCase();
+    KeyboardMode newMode;
+
+    if (modeStrLower == "ble") {
+        newMode = KB_MODE_BLE;
+    } else if (modeStrLower == "usb") {
+        if (!HAS_NATIVE_USB) {
+            return "{\"ok\":false,\"error\":\"USB not supported on this chip\"}";
+        }
+        newMode = KB_MODE_USB;
+    } else if (modeStrLower == "auto") {
+        newMode = KB_MODE_AUTO;
+    } else {
+        return "{\"ok\":false,\"error\":\"Invalid mode\"}";
+    }
+
+    saveKeyboardMode(newMode);
+
+    String json = "{\"ok\":true,";
+    json += "\"newMode\":\"" + getKeyboardModeString(newMode) + "\",";
+    json += "\"message\":\"Mode saved. Reboot required.\"}";
+    return json;
+}
+
+String rebootJson() {
+    delay(500);
+    ESP.restart();
+    return "{\"ok\":true,\"message\":\"Rebooting...\"}";
 }
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== Fingerprint Password Manager ===");
+    Serial.println("\n=== TouchPass Fingerprint Password Manager ===");
+    Serial.printf("Chip: %s (%s)\n", CHIP_TYPE, ESP.getChipModel());
+    Serial.printf("USB Support: %s\n", HAS_NATIVE_USB ? "Yes" : "No");
 
     // Initialize fingerprint serial
     fpSerial.begin(57600, SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
@@ -1178,31 +1235,19 @@ void setup() {
         setLED(LED_ON, 0, LED_RED, 0);
     }
 
-    // Start BLE Keyboard
-    bleKeyboard.begin();
-    Serial.println("BLE started - pair with 'FP-PWD'");
+    // Initialize keyboard
+    if (!initKeyboard()) {
+        Serial.println("Failed to initialize keyboard!");
+    }
 
-    // Setup web server routes
-    server.on("/", handleRoot);
-    server.on("/status", handleStatus);
-    server.on("/detect", handleDetect);
-    server.on("/fingers", handleFingers);
-    server.on("/enroll/start", handleEnrollStart);
-    server.on("/enroll/status", handleEnrollStatus);
-    server.on("/enroll/cancel", handleEnrollCancel);
-    server.on("/delete", handleDelete);
-    server.on("/empty", handleEmpty);
-    server.on("/ble/status", handleBleStatus);
-    server.on("/finger/get", handleFingerGet);
-    server.on("/finger/update", handleFingerUpdate);
+    // Initialize serial command handler
+    serialHandler.begin();
 
-    Serial.println("Ready! Hold finger 5s for WiFi config.");
+    Serial.println("Ready! Connect via USB for configuration.");
 }
 
 void loop() {
-    if (wifiEnabled) {
-        server.handleClient();
-        processEnrollment();
-    }
-    processFingerDetection();
+    serialHandler.loop();       // Process serial commands
+    processEnrollment();        // Handle enrollment (if active)
+    processFingerDetection();   // Auto-detect fingers and type passwords
 }

@@ -1,5 +1,5 @@
 {
   "cpu": {
-    "fqbn": "esp32:esp32:XIAO_ESP32C6:PartitionScheme=huge_app"
+    "fqbn": "esp32:esp32:XIAO_ESP32S3:PartitionScheme=default_8MB"
   }
 }
