@@ -86,9 +86,9 @@ public:
 // ========================================
 // USB HID Keyboard Implementation (ESP32-S3 only)
 // ========================================
-// Temporarily disabled due to KeyReport conflict with BLE library
-// Re-enable when needed for USB-only mode
-#if 0 && CONFIG_IDF_TARGET_ESP32S3
+// Note: USB HID and BLE keyboard cannot coexist due to KeyReport conflict
+// Define USB_HID_ONLY to use USB keyboard (excludes BLE)
+#if defined(USB_HID_ONLY) && CONFIG_IDF_TARGET_ESP32S3
 
 #include <USB.h>
 #include <USBHIDKeyboard.h>
@@ -109,24 +109,24 @@ public:
 
   bool begin() override {
     if (!initialized) {
-      USB.begin();
       usbKb->begin();
+      USB.begin();
       initialized = true;
-      delay(1000);  // Allow host to recognize device
+      delay(500);  // Allow host to recognize device
     }
     return true;
   }
 
   bool isConnected() override {
-    // USB keyboards are always "connected" when initialized
-    return initialized;
+    // USB HID is always "connected" when plugged in
+    return initialized && USB;
   }
 
   void print(const String& text) override {
     if (initialized) {
       for (unsigned int i = 0; i < text.length(); i++) {
         usbKb->print(String(text[i]));
-        delay(15);  // 15ms delay per character for USB (faster than BLE)
+        delay(10);  // 10ms delay per character for USB
       }
     }
   }
@@ -152,6 +152,6 @@ public:
   }
 };
 
-#endif  // CONFIG_IDF_TARGET_ESP32S3
+#endif  // USB_HID_ONLY && CONFIG_IDF_TARGET_ESP32S3
 
 #endif  // KEYBOARD_INTERFACE_H

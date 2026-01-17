@@ -16,6 +16,8 @@ Step-by-step instructions to build your TouchPass device.
 
 ## Step 1: Wiring
 
+### Standard Wiring (ESP32-C6 / Always-On)
+
 Connect the R502-A sensor to the ESP32-C6:
 
 | R502-A Wire | Color (typical) | ESP32-C6 Pin |
@@ -26,6 +28,25 @@ Connect the R502-A sensor to the ESP32-C6:
 | Pin 4 (RXD) | Green | D6 |
 | Pin 5 (IRQ) | Blue | D2 (optional) |
 | Pin 6 (VT)  | White | 3V3 |
+
+### Low-Power Wiring (ESP32-S3 / Wake-on-Touch)
+
+For battery-powered applications, use this wiring to reduce idle power from 30mA to 2µA:
+
+| R502-A Wire | Color (typical) | ESP32-S3 Pin | Notes |
+|-------------|-----------------|--------------|-------|
+| Pin 1 (VCC) | Red | GPIO4 | Switched power (40mA drive) |
+| Pin 2 (GND) | Black | GND | |
+| Pin 3 (TXD) | Yellow | D7 (GPIO17) | ESP32 RX |
+| Pin 4 (RXD) | Green | D6 (GPIO16) | ESP32 TX |
+| Pin 5 (IRQ) | Blue | GPIO2 | Touch wake interrupt |
+| Pin 6 (VT)  | White | 3V3 | Always on for touch sensing |
+
+**How it works:**
+- VT stays powered (3V3) to enable capacitive touch detection (2µA)
+- When a finger touches the sensor, IRQ triggers an interrupt
+- ESP32 powers on VCC via GPIO4 (configured for 40mA output)
+- After 5 seconds of inactivity, VCC is powered off to save power
 
 > **Note**: Wire colors may vary by manufacturer. Always verify with your sensor's datasheet.
 
@@ -71,6 +92,7 @@ arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:XIAO_ESP32C6:Partitio
 ### Sensor not responding
 - Check wiring, especially TX/RX (they cross over)
 - Verify 3.3V power on both VCC and VT pins
+- For ESP32-S3 low-power mode: Check serial monitor for "[POWER]" messages
 
 ### WiFi not starting
 - Hold finger for full 5 seconds

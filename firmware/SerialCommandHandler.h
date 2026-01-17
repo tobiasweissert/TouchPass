@@ -28,11 +28,17 @@ private:
     static const size_t JSON_DOC_SIZE = 2048;
 
     void processLine(const String& line) {
+        // Debug: print received command
+        Serial.print("[CMD] Received: ");
+        Serial.println(line);
+
         // Parse JSON command
         StaticJsonDocument<JSON_DOC_SIZE> commandDoc;
         DeserializationError error = deserializeJson(commandDoc, line);
 
         if (error) {
+            Serial.print("[CMD] Parse error: ");
+            Serial.println(error.c_str());
             sendError("Invalid JSON", -1);
             return;
         }
