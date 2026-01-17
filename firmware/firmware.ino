@@ -956,41 +956,11 @@ void setup() {
     }
 
     // Initialize USB Serial for configuration (native USB CDC)
-    // On ESP32-S3, this creates a composite USB device (HID + CDC)
     Serial.begin(115200);
-    delay(500);
-
-    Serial.println();
-    Serial.println();
-    Serial.println("=== TouchPass Starting ===");
-    Serial.println("{\"debug\":\"Serial initialized\"}");
-    Serial.flush();
     delay(100);
-
-    while (!Serial && millis() < 3000) {
-        delay(10);
-        Serial.println("{\"debug\":\"Waiting for Serial\"}");
-    }
-
-    Serial.println("{\"debug\":\"Serial ready, initializing command handler\"}");
-    Serial.flush();
+    while (!Serial && millis() < 3000) delay(10);
 
     cmdHandler.begin(&Serial);
-
-    Serial.println("{\"status\":\"ready\",\"device\":\"TouchPass\"}");
-    Serial.println("{\"debug\":\"Command handler initialized\"}");
-    Serial.flush();
-
-    // Initialize fingerprint sensor serial (UART1)
-#if CONFIG_IDF_TARGET_ESP32S3
-    Serial.println("{\"debug\":\"=== ESP32-S3 Detected ===\"}");
-    Serial.print("{\"info\":\"Initializing UART1\",\"rx\":");
-    Serial.print(FP_RX_PIN);
-    Serial.print(",\"tx\":");
-    Serial.print(FP_TX_PIN);
-    Serial.println(",\"baud\":57600}");
-    Serial.flush();
-#endif
 
     fpSerial.begin(57600, SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
     delay(500);
@@ -1000,38 +970,16 @@ void setup() {
         fpSerial.read();
     }
 
-    Serial.println("{\"info\":\"UART1 initialized\"}");
-    Serial.println("{\"debug\":\"Checking sensor connection...\"}");
-    Serial.flush();
-
     if (checkSensorConnection()) {
-        Serial.println("{\"debug\":\"Sensor connected OK\"}");
         readSysParams();
         getTemplateCount();
-        Serial.println("{\"debug\":\"Sensor initialized successfully\"}");
     } else {
-        Serial.println("{\"debug\":\"Sensor connection FAILED\"}");
         setLED(LED_ON, 0, LED_RED, 0);
     }
-
-    Serial.println("{\"debug\":\"=== Setup complete, entering main loop ===\"}");
-    Serial.flush();
-    delay(100);
 }
 
-unsigned long lastLoopLog = 0;
 void loop() {
-    // Log that loop is running (once per second)
-    if (millis() - lastLoopLog > 1000) {
-        Serial.print("{\"debug\":\"loop running, Serial.available()=");
-        Serial.print(Serial.available());
-        Serial.println("\"}");
-        lastLoopLog = millis();
-    }
-
-    // Handle USB Serial commands
     cmdHandler.loop();
-
     processEnrollment();
     processFingerDetection();
 }

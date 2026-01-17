@@ -99,25 +99,15 @@ private:
     }
 
     void sendResponse(const char* status, const String& dataJson, int id) {
-        // Build response: {"status":"ok","data":{...},"id":123}
-        String response = "{\"status\":\"";
-        response += status;
-        response += "\",\"data\":";
-        response += dataJson;
+        serial->print("{\"status\":\"");
+        serial->print(status);
+        serial->print("\",\"data\":");
+        serial->print(dataJson);
         if (id >= 0) {
-            response += ",\"id\":";
-            response += id;
+            serial->print(",\"id\":");
+            serial->print(id);
         }
-        response += "}";
-
-        Serial.print("{\"debug\":\"sending response: ");
-        Serial.print(response);
-        Serial.println("\"}");
-
-        serial->println(response);
-        serial->flush();
-
-        Serial.println("{\"debug\":\"response sent and flushed\"}");
+        serial->println("}");
     }
 
     void sendError(const char* message, int id) {
@@ -142,54 +132,24 @@ public:
     }
 
     void loop() {
-        if (!serial) {
-            Serial.println("{\"debug\":\"serial is null\"}");
-            return;
-        }
-
-        // Read available serial data
-        int available = serial->available();
-        if (available > 0) {
-            Serial.print("{\"debug\":\"available bytes: ");
-            Serial.print(available);
-            Serial.println("\"}");
-        }
+        if (!serial) return;
 
         while (serial->available() > 0) {
             char c = serial->read();
-            Serial.print("{\"debug\":\"read char: ");
-            Serial.print((int)c);
-            Serial.print(" '");
-            Serial.print(c);
-            Serial.println("'\"}");
 
-            // Check buffer overflow
             if (rxBuffer.length() >= MAX_BUFFER) {
                 rxBuffer = "";
                 sendError("Buffer overflow", -1);
                 continue;
             }
 
-            // Add to buffer
             rxBuffer += c;
 
-            // Check for newline (command complete)
             if (c == '\n') {
                 String line = rxBuffer;
                 rxBuffer = "";
-
-                Serial.print("{\"debug\":\"processing line: ");
-                Serial.print(line);
-                Serial.println("\"}");
-
-                // Trim whitespace
                 line.trim();
-
-                // Process if not empty
                 if (line.length() > 0) {
-                    Serial.print("{\"debug\":\"calling processLine with: ");
-                    Serial.print(line);
-                    Serial.println("\"}");
                     processLine(line);
                 }
             }

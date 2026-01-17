@@ -262,53 +262,21 @@ class TouchPassSerial {
 
   async connect() {
     try {
-      console.log('[Serial] Requesting port...');
-      // Request port (with optional filters for ESP32-C6)
       this.port = await navigator.serial.requestPort();
-      console.log('[Serial] Port selected:', this.port);
-      console.log('[Serial] Opening at 115200 baud...');
       await this.port.open({ baudRate: 115200 });
-      console.log('[Serial] Port opened successfully');
-      console.log('[Serial] Port readable:', this.port.readable ? 'available' : 'null');
-      console.log('[Serial] Port writable:', this.port.writable ? 'available' : 'null');
 
-      // Set up text decoder/encoder streams
-      console.log('[Serial] Creating text decoder stream...');
       const textDecoder = new TextDecoderStream();
-      console.log('[Serial] Text decoder created');
-
-      console.log('[Serial] Piping port.readable to textDecoder.writable...');
       this.readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
-      console.log('[Serial] Pipe created for reading');
-
-      console.log('[Serial] Getting reader from textDecoder.readable...');
       this.reader = textDecoder.readable.getReader();
-      console.log('[Serial] Reader obtained:', this.reader ? 'success' : 'failed');
 
-      console.log('[Serial] Creating text encoder stream...');
       const textEncoder = new TextEncoderStream();
-      console.log('[Serial] Text encoder created');
-
-      console.log('[Serial] Piping textEncoder.readable to port.writable...');
       this.writableStreamClosed = textEncoder.readable.pipeTo(this.port.writable);
-      console.log('[Serial] Pipe created for writing');
-
-      console.log('[Serial] Getting writer from textEncoder.writable...');
       this.writer = textEncoder.writable.getWriter();
-      console.log('[Serial] Writer obtained:', this.writer ? 'success' : 'failed');
 
-      console.log('[Serial] Text streams configured successfully');
-
-      // Start read loop
-      console.log('[Serial] Starting read loop...');
-      this.readLoop().catch(err => {
-        console.error('[Serial] Read loop crashed:', err);
-      });
-      console.log('[Serial] Read loop initiated');
+      this.readLoop().catch(err => console.error('Read loop error:', err));
       return true;
     } catch (error) {
-      console.error('[Serial] Connection failed:', error);
-      console.error('[Serial] Error details:', error.message, error.stack);
+      console.error('Connection failed:', error);
       throw error;
     }
   }
@@ -317,129 +285,58 @@ class TouchPassSerial {
     const id = ++this.commandId;
     const message = JSON.stringify({ cmd, params, id }) + '\n';
 
-    console.log(`[Serial] Sending command #${id}: ${cmd}`, params);
-    console.log(`[Serial] Raw message: ${message.trim()}`);
-    console.log(`[Serial] Message length: ${message.length} bytes`);
-    console.log(`[Serial] Current time: ${Date.now()}`);
-
     return new Promise((resolve, reject) => {
-      const sentTime = Date.now();
       const timeout = setTimeout(() => {
-        const elapsed = Date.now() - sentTime;
-        console.error(`[Serial] ⏱️ TIMEOUT after ${elapsed}ms for command #${id}: ${cmd}`);
-        console.log(`[Serial] Pending commands at timeout:`, Array.from(this.pendingCommands.keys()));
-        console.log(`[Serial] Command was sent at: ${sentTime}, timeout at: ${Date.now()}`);
         this.pendingCommands.delete(id);
         reject(new Error('Command timeout'));
       }, 5000);
 
-      this.pendingCommands.set(id, { resolve, reject, timeout, cmd, sentTime });
-      console.log(`[Serial] Command #${id} queued, waiting for response...`);
-      console.log(`[Serial] Total pending commands: ${this.pendingCommands.size}`);
-
-      this.writer.write(message).then(() => {
-        console.log(`[Serial] ✓ Command #${id} write complete at ${Date.now()}`);
-      }).catch(err => {
-        console.error(`[Serial] ✗ Write error for command #${id}:`, err);
-      });
+      this.pendingCommands.set(id, { resolve, reject, timeout });
+      this.writer.write(message);
     });
   }
 
   async readLoop() {
     let buffer = '';
-    console.log('[Serial] === READ LOOP STARTING ===');
-    console.log('[Serial] Reader state:', this.reader ? 'initialized' : 'null');
-    console.log('[Serial] Reader type:', typeof this.reader);
-
-    if (!this.reader) {
-      console.error('[Serial] CRITICAL: Reader is null, cannot start read loop!');
-      return;
-    }
-
     try {
-      console.log('[Serial] Entering read loop while(true)...');
-      let loopCount = 0;
       while (true) {
-        loopCount++;
-        console.log(`[Serial] Loop iteration #${loopCount}, waiting for data... (buffer: "${buffer}")`);
-
-        console.log('[Serial] About to call reader.read()...');
-        const readResult = await this.reader.read();
-        console.log('[Serial] reader.read() returned:', readResult);
-
-        const { value, done } = readResult;
-        const receiveTime = Date.now();
-
-        if (done) {
-          console.log('[Serial] Reader done (stream closed)');
-          break;
-        }
-
-        console.log(`[Serial] 📥 Received data at ${receiveTime}: "${value}"`);
-        console.log(`[Serial] Data length: ${value.length} bytes`);
-        console.log(`[Serial] Data bytes:`, Array.from(value).map(c => c.charCodeAt(0)));
+        const { value, done } = await this.reader.read();
+        if (done) break;
 
         buffer += value;
-        console.log(`[Serial] Buffer now: "${buffer}"`);
-
         const lines = buffer.split('\n');
         buffer = lines.pop();
-        console.log(`[Serial] Found ${lines.length} complete lines, remaining buffer: "${buffer}"`);
 
         for (const line of lines) {
           if (line.trim()) {
-            console.log(`[Serial] Processing line at ${Date.now()}: ${line.trim()}`);
             try {
               const parsed = JSON.parse(line);
-              console.log('[Serial] ✓ Parsed JSON:', parsed);
               this.handleResponse(parsed);
             } catch (e) {
-              console.error('[Serial] ✗ Parse error:', e.message);
-              console.error('[Serial] Failed line:', line);
-              console.error('[Serial] Line length:', line.length);
+              console.error('Parse error:', line);
             }
-          } else {
-            console.log('[Serial] Skipping empty line');
           }
         }
       }
     } catch (error) {
-      console.error('[Serial] Read error:', error);
-      console.error('[Serial] Error stack:', error.stack);
+      console.error('Read error:', error);
       this.handleDisconnect();
     }
   }
 
   handleResponse(response) {
-    const responseTime = Date.now();
     const { id, status, data, message } = response;
 
-    console.log(`[Serial] 📨 Handling response at ${responseTime}`);
-    console.log(`[Serial] Response ID: ${id}, status: ${status}`);
-    console.log(`[Serial] Response data:`, data);
-    console.log(`[Serial] Pending commands:`, Array.from(this.pendingCommands.keys()));
-
     if (this.pendingCommands.has(id)) {
-      const pendingCmd = this.pendingCommands.get(id);
-      const elapsed = responseTime - pendingCmd.sentTime;
-      console.log(`[Serial] ✓ Found pending command #${id} (${pendingCmd.cmd})`);
-      console.log(`[Serial] Response time: ${elapsed}ms`);
-
-      const { resolve, reject, timeout } = pendingCmd;
+      const { resolve, reject, timeout } = this.pendingCommands.get(id);
       clearTimeout(timeout);
       this.pendingCommands.delete(id);
-      console.log(`[Serial] Remaining pending commands: ${this.pendingCommands.size}`);
 
       if (status === 'ok') {
-        console.log(`[Serial] ✓ Command #${id} SUCCESS`, data);
         resolve(data);
       } else {
-        console.error(`[Serial] ✗ Command #${id} FAILED:`, message);
         reject(new Error(message || 'Command failed'));
       }
-    } else {
-      console.warn(`[Serial] ⚠️ Received response for unknown command ID: ${id}`);
-      console.warn(`[Serial] Known IDs:`, Array.from(this.pendingCommands.keys()));
     }
   }
 
@@ -500,79 +397,38 @@ function log(msg, type='info') {
 // Connect to device
 async function connectDevice() {
   try {
-    console.log('[App] Creating serial connection...');
-    console.log('[App] Current time:', Date.now());
-
     serial = new TouchPassSerial();
     await serial.connect();
-    console.log('[App] Serial connection established');
 
-    // Hide connect screen, show main app
     document.getElementById('connectScreen').classList.add('hidden');
     document.getElementById('mainApp').classList.remove('hidden');
 
     log('Connected', 'success');
 
-    // Initialize app - test with first command
-    console.log('[App] === Starting initialization sequence ===');
-    console.log('[App] Calling refreshStatus()...');
-    try {
-      await refreshStatus();
-      console.log('[App] ✓ refreshStatus() completed');
-    } catch (err) {
-      console.error('[App] ✗ refreshStatus() failed:', err);
-      throw err;
-    }
+    await refreshStatus();
+    await refreshBle();
+    await loadSystemInfo();
 
-    console.log('[App] Calling refreshBle()...');
-    try {
-      await refreshBle();
-      console.log('[App] ✓ refreshBle() completed');
-    } catch (err) {
-      console.error('[App] ✗ refreshBle() failed:', err);
-    }
-
-    console.log('[App] Calling loadSystemInfo()...');
-    try {
-      await loadSystemInfo();
-      console.log('[App] ✓ loadSystemInfo() completed');
-    } catch (err) {
-      console.error('[App] ✗ loadSystemInfo() failed:', err);
-    }
-
-    console.log('[App] Starting intervals...');
     setInterval(refreshStatus, 10000);
     setInterval(refreshBle, 3000);
     startDetectionPolling();
-    console.log('[App] === Initialization complete! ===');
-
   } catch (error) {
-    console.error('[App] Connection failed:', error);
-    console.error('[App] Error stack:', error.stack);
+    console.error('Connection failed:', error);
     alert('Failed to connect: ' + error.message);
   }
 }
 
 // Status and BLE refresh
 async function refreshStatus() {
-  console.log('[App] refreshStatus() starting...');
-  try {
-    const status = await api('get_status');
-    console.log('[App] get_status returned:', status);
-
-    if (status) {
-      document.getElementById('sensorDot').className = 'status-dot' + (status.sensor ? ' active' : ' error');
-      document.getElementById('sensorIndicator').className = 'indicator' + (status.sensor ? ' success' : ' error');
-      document.getElementById('sensorStatus').textContent = 'Sensor: ' + (status.sensor ? 'OK' : 'Error');
-      document.getElementById('countStatus').textContent = (status.count || 0) + '/200';
-      document.getElementById('enrolledBadge').textContent = (status.count || 0) + ' enrolled';
-    }
-    await loadFingers();
-    console.log('[App] refreshStatus() complete');
-  } catch (err) {
-    console.error('[App] refreshStatus() error:', err);
-    throw err;
+  const status = await api('get_status');
+  if (status) {
+    document.getElementById('sensorDot').className = 'status-dot' + (status.sensor ? ' active' : ' error');
+    document.getElementById('sensorIndicator').className = 'indicator' + (status.sensor ? ' success' : ' error');
+    document.getElementById('sensorStatus').textContent = 'Sensor: ' + (status.sensor ? 'OK' : 'Error');
+    document.getElementById('countStatus').textContent = (status.count || 0) + '/200';
+    document.getElementById('enrolledBadge').textContent = (status.count || 0) + ' enrolled';
   }
+  await loadFingers();
 }
 
 async function refreshBle() {
