@@ -36,11 +36,11 @@ The XIAO board silkscreen labels (D0-D10) map to different GPIOs than ESP32-C6:
 **Solution**: Use conditional compilation:
 ```cpp
 #if CONFIG_IDF_TARGET_ESP32S3
-  #define FP_TX_PIN 43  // D6
-  #define FP_RX_PIN 44  // D7
+  #define FP_TX_PIN 5   // D4 - matches Seeed XIAO ESP32-S3 pinout
+  #define FP_RX_PIN 6   // D5 - matches Seeed XIAO ESP32-S3 pinout
 #else
-  #define FP_TX_PIN 16  // D6
-  #define FP_RX_PIN 17  // D7
+  #define FP_TX_PIN 16  // D6 - ESP32-C6
+  #define FP_RX_PIN 17  // D7 - ESP32-C6
 #endif
 ```
 
@@ -133,6 +133,20 @@ ESP.restart();  // Restart required to reinitialize keyboard
 ### 9. Both Keyboards Cannot Run Simultaneously
 
 Even with library patches, only one keyboard can be active at a time. Switching requires device restart.
+
+## Troubleshooting: No Serial Output
+
+If you see no serial output when connecting USB:
+
+1. **Check USB CDC On Boot setting**: Tools → USB CDC On Boot → **Disabled**
+2. **Try different USB cable**: Some cables are power-only
+3. **Check USB port**: Try different USB port on computer
+4. **Verify board selection**: Tools → Board → XIAO_ESP32S3
+5. **Check serial monitor baud rate**: Must be 115200
+
+If still no output, the bootloader may not be responding. Try:
+- Hold BOOT button, click RESET, release BOOT to enter download mode
+- Re-upload firmware with verbose output enabled
 
 ## Firmware Architecture
 

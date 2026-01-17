@@ -20,25 +20,21 @@ String getSystemInfoJson();
 String getKeyboardModeJson();
 String setKeyboardModeJson(JsonObject params);
 String rebootJson();
+String getDiagnosticsJson();
 
 class SerialCommandHandler {
 private:
     String rxBuffer;
+    Stream* serial;
     static const size_t MAX_BUFFER = 2048;
     static const size_t JSON_DOC_SIZE = 2048;
 
     void processLine(const String& line) {
-        // Debug: print received command
-        Serial.print("[CMD] Received: ");
-        Serial.println(line);
-
         // Parse JSON command
         StaticJsonDocument<JSON_DOC_SIZE> commandDoc;
         DeserializationError error = deserializeJson(commandDoc, line);
 
         if (error) {
-            Serial.print("[CMD] Parse error: ");
-            Serial.println(error.c_str());
             sendError("Invalid JSON", -1);
             return;
         }
@@ -91,6 +87,8 @@ private:
             dataJson = setKeyboardModeJson(params);
         } else if (strcmp(cmd, "reboot") == 0) {
             dataJson = rebootJson();
+        } else if (strcmp(cmd, "diagnostics") == 0) {
+            dataJson = getDiagnosticsJson();
         } else {
             sendError("Unknown command", id);
             return;
@@ -102,40 +100,68 @@ private:
 
     void sendResponse(const char* status, const String& dataJson, int id) {
         // Build response: {"status":"ok","data":{...},"id":123}
-        Serial.print("{\"status\":\"");
-        Serial.print(status);
-        Serial.print("\",\"data\":");
-        Serial.print(dataJson);
+        String response = "{\"status\":\"";
+        response += status;
+        response += "\",\"data\":";
+        response += dataJson;
         if (id >= 0) {
-            Serial.print(",\"id\":");
-            Serial.print(id);
+            response += ",\"id\":";
+            response += id;
         }
-        Serial.println("}");
+        response += "}";
+
+        Serial.print("{\"debug\":\"sending response: ");
+        Serial.print(response);
+        Serial.println("\"}");
+
+        serial->println(response);
+        serial->flush();
+
+        Serial.println("{\"debug\":\"response sent and flushed\"}");
     }
 
     void sendError(const char* message, int id) {
         // Build error response: {"status":"error","message":"...","id":123}
-        Serial.print("{\"status\":\"error\",\"message\":\"");
-        Serial.print(message);
-        Serial.print("\"");
+        serial->print("{\"status\":\"error\",\"message\":\"");
+        serial->print(message);
+        serial->print("\"");
         if (id >= 0) {
-            Serial.print(",\"id\":");
-            Serial.print(id);
+            serial->print(",\"id\":");
+            serial->print(id);
         }
-        Serial.println("}");
+        serial->println("}");
     }
 
 public:
-    void begin() {
-        // Serial already initialized in setup(), just clear buffer
+    SerialCommandHandler() : serial(nullptr) {}
+
+    void begin(Stream* serialPort) {
+        serial = serialPort;
         rxBuffer.reserve(MAX_BUFFER);
         rxBuffer = "";
     }
 
     void loop() {
+        if (!serial) {
+            Serial.println("{\"debug\":\"serial is null\"}");
+            return;
+        }
+
         // Read available serial data
-        while (Serial.available() > 0) {
-            char c = Serial.read();
+        int available = serial->available();
+        if (available > 0) {
+            Serial.print("{\"debug\":\"available bytes: ");
+            Serial.print(available);
+            Serial.println("\"}");
+        }
+
+        while (serial->available() > 0) {
+            char c = serial->read();
+            Serial.print("{\"debug\":\"read char: ");
+            Serial.print((int)c);
+            Serial.print(" '");
+            Serial.print(c);
+            Serial.println("'\"}");
 
             // Check buffer overflow
             if (rxBuffer.length() >= MAX_BUFFER) {
@@ -152,11 +178,18 @@ public:
                 String line = rxBuffer;
                 rxBuffer = "";
 
+                Serial.print("{\"debug\":\"processing line: ");
+                Serial.print(line);
+                Serial.println("\"}");
+
                 // Trim whitespace
                 line.trim();
 
                 // Process if not empty
                 if (line.length() > 0) {
+                    Serial.print("{\"debug\":\"calling processLine with: ");
+                    Serial.print(line);
+                    Serial.println("\"}");
                     processLine(line);
                 }
             }

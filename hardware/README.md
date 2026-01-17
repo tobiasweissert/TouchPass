@@ -12,44 +12,56 @@
 ## Wiring Diagram
 
 ```
-R502-A Fingerprint Sensor          XIAO ESP32-S3/C6
+R502-A Fingerprint Sensor          XIAO ESP32-S3
 ┌──────────────────────┐          ┌──────────────┐
 │                      │          │              │
 │  Pin 1 (VCC)  Red   ─┼──────────┼─── 3V3       │
 │  Pin 2 (GND)  Black ─┼──────────┼─── GND       │
-│  Pin 3 (TXD)  Yellow┼──────────┼─── D7 (RX)   │
-│  Pin 4 (RXD)  Green ─┼──────────┼─── D6 (TX)   │
+│  Pin 3 (TXD)  Yellow┼──────────┼─── D5 (RX)   │
+│  Pin 4 (RXD)  Green ─┼──────────┼─── D4 (TX)   │
 │  Pin 5 (IRQ)  Blue  ─┼──────────┼─── (unused)  │
 │  Pin 6 (VT)   White ─┼──────────┼─── 3V3       │
 │                      │          │              │
 └──────────────────────┘          └──────────────┘
+
+Configuration Interface: USB cable (UART0 on GPIO43/44 @ 115200 baud)
+Note: Arduino IDE must have "USB CDC On Boot: Disabled" to avoid USB HID conflicts
 ```
 
 ## Pin Mapping
 
-The D6/D7 silkscreen labels map to different GPIOs on each chip:
+The silkscreen labels map to different GPIOs on each chip:
+
+**Note for ESP32-S3:** Using D4/D5 (GPIO5/6) for fingerprint sensor. USB CDC requires "USB CDC On Boot: Disabled" in Arduino IDE.
 
 ### ESP32-S3
 
-| R502-A Pin | Function | ESP32-S3 Pin | GPIO |
-|------------|----------|--------------|------|
-| 1 (VCC) Red | Power 3.3V | 3V3 | - |
-| 2 (GND) Black | Ground | GND | - |
-| 3 (TXD) Yellow | Sensor TX → ESP RX | D7 | GPIO44 |
-| 4 (RXD) Green | Sensor RX ← ESP TX | D6 | GPIO43 |
-| 5 (IRQ) Blue | Finger detect | - | (unused) |
-| 6 (VT) White | Touch power | 3V3 | - |
+| Pin/Function | Description | ESP32-S3 Pin | GPIO |
+|--------------|-------------|--------------|------|
+| **Fingerprint Sensor (UART1)** | | | |
+| VCC (Red) | Power 3.3V | 3V3 | - |
+| GND (Black) | Ground | GND | - |
+| TXD (Yellow) | Sensor TX → ESP RX | D5 | GPIO6 |
+| RXD (Green) | Sensor RX ← ESP TX | D4 | GPIO5 |
+| IRQ (Blue) | Finger detect | - | (unused) |
+| VT (White) | Touch power | 3V3 | - |
+| **Configuration Interface** | | | |
+| USB Serial | UART0 (USB CDC disabled) | USB-C Port | GPIO43/44 |
+| USB HID Keyboard | Native USB | USB-C Port | GPIO19/20 |
 
 ### ESP32-C6
 
-| R502-A Pin | Function | ESP32-C6 Pin | GPIO |
-|------------|----------|--------------|------|
-| 1 (VCC) Red | Power 3.3V | 3V3 | - |
-| 2 (GND) Black | Ground | GND | - |
-| 3 (TXD) Yellow | Sensor TX → ESP RX | D7 | GPIO17 |
-| 4 (RXD) Green | Sensor RX ← ESP TX | D6 | GPIO16 |
-| 5 (IRQ) Blue | Finger detect | - | (unused) |
-| 6 (VT) White | Touch power | 3V3 | - |
+| Pin/Function | Description | ESP32-C6 Pin | GPIO |
+|--------------|-------------|--------------|------|
+| **Fingerprint Sensor (UART1)** | | | |
+| VCC (Red) | Power 3.3V | 3V3 | - |
+| GND (Black) | Ground | GND | - |
+| TXD (Yellow) | Sensor TX → ESP RX | D7 | GPIO17 |
+| RXD (Green) | Sensor RX ← ESP TX | D6 | GPIO16 |
+| IRQ (Blue) | Finger detect | - | (unused) |
+| VT (White) | Touch power | 3V3 | - |
+| **Configuration Interface** | | | |
+| USB Serial | Native USB CDC | USB-C Port | GPIO19/20 |
 
 ## R502-A Wire Colors
 

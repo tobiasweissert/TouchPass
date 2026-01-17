@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(arduino-cli lib search:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(arduino-cli lib:*)",
+      "Bash(arduino-cli core:*)",
+      "Bash(ls:*)",
+      "Bash(arduino-cli upload:*)",
+      "WebFetch(domain:docs.espressif.com)",
+      "WebFetch(domain:www.espboards.dev)"
+    ]
+  }
+}
