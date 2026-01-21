@@ -18,3 +18,6 @@ build/
 # Backup files
 *.bak
 *.orig
+
+# Claude Code
+.claude/
