@@ -4,6 +4,8 @@
 
 A hardware password manager that types your passwords when you touch it with an enrolled finger.
 
+![TouchPass Demo](docs/images/animation.gif)
+
 ## Features
 
 - **6-capture enrollment** - Touch ID style enrollment for better accuracy
@@ -16,6 +18,8 @@ A hardware password manager that types your passwords when you touch it with an 
 
 ## Hardware
 
+![TouchPass Device](docs/images/touchpass.jpg)
+
 | Component | Description |
 |-----------|-------------|
 | Seeed XIAO ESP32-S3 | Recommended - USB HID + WiFi + BLE |
@@ -25,6 +29,10 @@ A hardware password manager that types your passwords when you touch it with an 
 See [hardware/README.md](hardware/README.md) for wiring diagram and details.
 
 ### Wiring
+
+| ![Interior View](docs/images/interior.jpg) | ![Wiring Board](docs/images/wireboard.jpg) |
+|:--:|:--:|
+| *Interior assembly* | *Wiring detail* |
 
 #### ESP32-S3 Fingerprint Sensor
 | R502-A Pin | ESP32-S3 Pin | GPIO | Description |
@@ -71,15 +79,18 @@ For serial-based configuration without WiFi interference:
 TouchPass/
 ├── firmware/          # ESP32 source code
 │   ├── firmware.ino   # Main firmware
+│   ├── modules/       # Modular components
 │   ├── webpage.h      # Embedded web UI
+│   ├── config.html    # USB Serial configuration interface
 │   └── sketch.json    # Arduino config
 ├── hardware/          # Wiring, schematics, PCB (future)
-├── enclosure/         # 3D printable case (coming soon)
+├── enclosure/         # 3D printable case
 ├── docs/              # Documentation
 │   ├── assembly.md    # Build instructions
+│   ├── programming-guide.md  # Flashing & setup
+│   ├── serial-configuration.md  # USB config guide
 │   └── images/        # Photos & screenshots
 ├── LICENSE            # MIT License
-├── CONTRIBUTING.md    # How to contribute
 └── README.md          # This file
 ```
 
@@ -148,6 +159,10 @@ arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:XIAO_ESP32C6:Partitio
 5. No WiFi interference with fingerprint sensor
 6. Uses Web Serial API (see [docs/serial-configuration.md](docs/serial-configuration.md))
 
+| ![Configuration Interface](docs/images/config interface.png) | ![Enroll Finger](docs/images/enroll finger.png) |
+|:--:|:--:|
+| *Main configuration interface* | *Finger enrollment dialog* |
+
 ### Toggle WiFi
 
 Hold any finger on sensor for 5 seconds to toggle WiFi on/off.
@@ -182,7 +197,7 @@ Hold any finger on sensor for 5 seconds to toggle WiFi on/off.
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome!
 
 - Report bugs or suggest features via Issues
 - Submit PRs for code improvements
